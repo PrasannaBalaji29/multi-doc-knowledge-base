@@ -35,16 +35,22 @@ Question: {user_question}
 
 Answer (based ONLY on context above):"""
 
-
     response = client_ai.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}]
     )
 
-    print("\n🤖 Answer:", response.choices[0].message.content)
+    answer = response.choices[0].message.content
+
+    print("\n🤖 Answer:", answer)
     print("\n📄 Sources used:")
     for i, src in enumerate(sources):
         print(f"  {i+1}. {src.get('source', 'Unknown')}")
+
+    return {
+        "answer": answer,
+        "sources": [src.get('source', 'Unknown') for src in sources]
+    }
 
 if __name__ == "__main__":
     question = input("Ask your RAG system: ")
