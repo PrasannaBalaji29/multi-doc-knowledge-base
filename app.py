@@ -1,16 +1,26 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import pymysql
 import os
 import uuid
+import datetime
+import json
 from dotenv import load_dotenv
 from query import answer_question
+from groq import Groq
 
 load_dotenv()
 
-app = Flask(__name__)
+client_title = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-# ── MySQL connection ─────────────────────────────────────────────
+app = Flask(__name__)
+CORS(app)
+
+# ── Supported file types ───────────────────────────────────────────────────────
+ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'}
+
+# ── DB ─────────────────────────────────────────────────────────────────────────
 def get_db():
     return pymysql.connect(
         host=os.getenv("MYSQL_HOST", "localhost"),
@@ -20,62 +30,136 @@ def get_db():
         cursorclass=pymysql.cursors.DictCursor
     )
 
-# ── 1. POST /upload ──────────────────────────────────────────────
+# ── Title generator ────────────────────────────────────────────────────────────
+def generate_title(question):
+    try:
+        response = client_title.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": (
+                "Generate a short 3-5 word title for this question. "
+                "No quotes, no punctuation, title case only, just the title:\n\n"
+                f"{question}"
+            )}],
+            temperature=0.3,
+            max_tokens=20
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Title generation error: {e}")
+        return question[:40]
+
+# ── DB save helper ─────────────────────────────────────────────────────────────
+def _save_to_db(session_id, question, answer, sources):
+    title = generate_title(question)
+    try:
+        conn = get_db()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO chat_history (session_id, question, answer, sources, title) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (session_id, question, answer, sources, title)
+            )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"DB save error: {e}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTES
+# ══════════════════════════════════════════════════════════════════════════════
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
-    file = request.files["file"]
+    file     = request.files["file"]
     filename = secure_filename(file.filename)
+    ext      = os.path.splitext(filename)[1].lower()
+
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({
+            "error": f"Unsupported file type '{ext}'. Allowed: PDF, TXT, DOCX, CSV, XLSX, PPTX, MD"
+        }), 400
+
     os.makedirs("docs", exist_ok=True)
-    filepath = os.path.join("docs", filename)
-    file.save(filepath)
+    save_path = os.path.join("docs", filename)
+    file.save(save_path)
+    print(f"📁 Saved: {filename}")
 
-    # Re-ingest the entire docs folder
-    from ingest import main as ingest_main
-    ingest_main()
+    try:
+        from ingest import main as ingest_main
+        ingest_main()
+        return jsonify({"message": f"{filename} uploaded and indexed successfully"}), 200
+    except Exception as e:
+        print(f"Ingest error: {e}")
+        # File was saved — ingest failed. Don't delete file, report error.
+        return jsonify({"error": f"File saved but indexing failed: {str(e)}"}), 500
 
-    return jsonify({"message": f"{filename} uploaded and indexed successfully"}), 200
 
-# ── 2. POST /query ───────────────────────────────────────────────
 @app.route("/query", methods=["POST"])
 def query():
-    data = request.get_json()
-    question = data.get("question")
-    session_id = data.get("session_id", str(uuid.uuid4()))
+    data         = request.get_json()
+    question     = data.get("question", "").strip()
+    session_id   = data.get("session_id", str(uuid.uuid4()))
+    selected_doc = data.get("selected_doc", "all")
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    result = answer_question(question)
-    answer = result.get("answer", "")
-    sources = str(result.get("sources", []))
+    result  = answer_question(question, selected_doc)
+    answer  = result.get("answer", "")
+    sources = json.dumps(result.get("sources", []))
 
-    # Save to MySQL
-    conn = get_db()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO chat_history (session_id, question, answer, sources) VALUES (%s, %s, %s, %s)",
-                (session_id, question, answer, sources)
-            )
-        conn.commit()
-    finally:
-        conn.close()
+    _save_to_db(session_id, question, answer, sources)
 
     return jsonify({
         "session_id": session_id,
-        "question": question,
-        "answer": answer,
-        "sources": sources
+        "question":   question,
+        "answer":     answer,
+        "sources":    result.get("sources", [])
     }), 200
 
-# ── 3. GET /history ──────────────────────────────────────────────
+
+@app.route("/stream", methods=["POST"])
+def stream():
+    data         = request.get_json()
+    question     = data.get("question", "").strip()
+    session_id   = data.get("session_id", str(uuid.uuid4()))
+    selected_doc = data.get("selected_doc", "all")
+
+    if not question:
+        return jsonify({"error": "No question provided"}), 400
+
+    def generate():
+        full_answer = ""
+        sources     = []
+        try:
+            result  = answer_question(question, selected_doc)
+            answer  = result.get("answer", "")
+            sources = result.get("sources", [])
+
+            # Stream word by word
+            words = answer.split(" ")
+            for i, word in enumerate(words):
+                token        = word + (" " if i < len(words) - 1 else "")
+                full_answer += token
+                yield f"data: {json.dumps({'token': token, 'sources': sources})}\n\n"
+
+            _save_to_db(session_id, question, full_answer, json.dumps(sources))
+            yield f"data: {json.dumps({'done': True, 'sources': sources})}\n\n"
+
+        except Exception as e:
+            print(f"Stream error: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
+
+
 @app.route("/history", methods=["GET"])
 def history():
     session_id = request.args.get("session_id")
-    conn = get_db()
+    conn       = get_db()
     try:
         with conn.cursor() as cursor:
             if session_id:
@@ -90,14 +174,13 @@ def history():
             rows = cursor.fetchall()
     finally:
         conn.close()
-
     return jsonify(rows), 200
 
-# ── 4. DELETE /clear ─────────────────────────────────────────────
+
 @app.route("/clear", methods=["DELETE"])
 def clear():
     session_id = request.args.get("session_id")
-    conn = get_db()
+    conn       = get_db()
     try:
         with conn.cursor() as cursor:
             if session_id:
@@ -109,9 +192,61 @@ def clear():
         conn.commit()
     finally:
         conn.close()
-
     return jsonify({"message": "Chat history cleared"}), 200
 
-# ── Run ──────────────────────────────────────────────────────────
+
+@app.route("/docs", methods=["GET"])
+def list_docs():
+    docs_dir = "docs"
+    if not os.path.exists(docs_dir):
+        return jsonify({"docs": []})
+
+    files = []
+    for f in os.listdir(docs_dir):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in ALLOWED_EXTENSIONS:
+            path = os.path.join(docs_dir, f)
+            size = os.path.getsize(path)
+            files.append({
+                "name": f,
+                "size": f"{size / 1024:.0f} KB",
+                "date": datetime.datetime.fromtimestamp(
+                    os.path.getmtime(path)
+                ).strftime("%b %d")
+            })
+    return jsonify({"docs": files})
+
+
+@app.route("/delete-doc", methods=["DELETE"])
+def delete_doc():
+    filename = request.args.get("filename")
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+
+    # Remove from disk
+    filepath = os.path.join("docs", filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        print(f"🗑️  Deleted file: {filename}")
+    else:
+        print(f"⚠️  File not found on disk: {filename}")
+
+    # Remove from ChromaDB
+    try:
+        import chromadb
+        chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        col           = chroma_client.get_collection("knowledge_base")
+        results       = col.get(where={"source": filename})
+        if results["ids"]:
+            col.delete(ids=results["ids"])
+            print(f"🗑️  Removed {len(results['ids'])} chunks from ChromaDB for: {filename}")
+        else:
+            print(f"⚠️  No ChromaDB chunks found for: {filename}")
+    except Exception as e:
+        print(f"ChromaDB delete error: {e}")
+
+    return jsonify({"message": f"{filename} deleted successfully"}), 200
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

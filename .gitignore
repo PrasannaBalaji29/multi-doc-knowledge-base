@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project specific
+chroma_db/
+docs/
+node_modules/
+frontend/dist/
+*.zip
+diagnose.py
+diagnose2.py
+eval_rag.py
+create_test_files.py
+create_pdf.py
