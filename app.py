@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-import pymysql
+import psycopg2
+import psycopg2.extras
 import os
 import uuid
 import datetime
@@ -22,12 +23,13 @@ ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'}
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
 def get_db():
-    return pymysql.connect(
-        host=os.getenv("MYSQL_HOST", "localhost"),
-        user=os.getenv("MYSQL_USER", "root"),
-        password=os.getenv("MYSQL_PASSWORD", ""),
-        database=os.getenv("MYSQL_DB", "rag_db"),
-        cursorclass=pymysql.cursors.DictCursor
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        dbname=os.getenv("DB_NAME"),
+        port=os.getenv("DB_PORT", "5432"),
+        cursor_factory=psycopg2.extras.RealDictCursor
     )
 
 # ── Title generator ────────────────────────────────────────────────────────────
@@ -131,24 +133,21 @@ def stream():
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    def generate():
-        full_answer = ""
-        sources     = []
-        try:
-            result  = answer_question(question, selected_doc)
-            answer  = result.get("answer", "")
-            sources = result.get("sources", [])
+    # Run RAG OUTSIDE generator — saves to DB before streaming
+    result  = answer_question(question, selected_doc)
+    answer  = result.get("answer", "")
+    sources = result.get("sources", [])
 
-            # Stream word by word
+    # Save to DB immediately
+    _save_to_db(session_id, question, answer, json.dumps(sources))
+
+    def generate():
+        try:
             words = answer.split(" ")
             for i, word in enumerate(words):
-                token        = word + (" " if i < len(words) - 1 else "")
-                full_answer += token
+                token = word + (" " if i < len(words) - 1 else "")
                 yield f"data: {json.dumps({'token': token, 'sources': sources})}\n\n"
-
-            _save_to_db(session_id, question, full_answer, json.dumps(sources))
             yield f"data: {json.dumps({'done': True, 'sources': sources})}\n\n"
-
         except Exception as e:
             print(f"Stream error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"

@@ -566,7 +566,7 @@ def cross_doc_comparison(
     doc_chunks = defaultdict(list)
 
     for source in all_sources:
-        rresults = get_collection().query(
+        results = get_collection().query(
             query_embeddings=[query_embedding],
             n_results=30,
             include=["documents", "metadatas", "distances"],
@@ -624,7 +624,7 @@ def handle_summary(
     Rolling window summary — splits doc into batches, summarizes each,
     then combines into final summary. Covers more content within token limit.
     """
-    all_data   = collection.get(include=["documents", "metadatas"])
+    all_data   = get_collection().get(include=["documents", "metadatas"])
     doc_chunks = defaultdict(list)
 
     for chunk, meta in zip(all_data["documents"], all_data["metadatas"]):
