@@ -41,7 +41,13 @@ load_dotenv()
 
 # ── Clients ────────────────────────────────────────────────────────────────────
 client_ai = Groq(api_key=os.getenv("GROQ_API_KEY"))
-embedder  = SentenceTransformer("all-MiniLM-L6-v2")
+_embedder = None
+
+def get_embedder():
+    global _embedder
+    if _embedder is None:
+        _embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embedder
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -427,7 +433,7 @@ Original question: {question}
     where_filter   = {"source": selected_doc} if selected_doc and selected_doc != "all" else None
 
     for variant in variants:
-        q_emb = embedder.encode(variant).tolist()
+        q_emb = get_embedder().encode(variant).tolist()
         results = get_collection().query(
             query_embeddings=[q_emb],
             n_results=50,
@@ -521,7 +527,7 @@ Sub-topics:""",
 
         seen_chunks = set()
         for subtopic in subtopics_text.strip().split("\n")[:2]:
-            sub_emb = embedder.encode(subtopic.strip()).tolist()
+            sub_emb = get_embedder().encode(subtopic.strip()).tolist()
             sub_res = get_collection().query(
                 query_embeddings=[sub_emb],
                 n_results=20,
@@ -829,7 +835,7 @@ and ask any questions about them. Keep it to 2-3 sentences. Be enthusiastic but 
     if is_comparison_request(user_question) and len(all_sources) > 1:
         log.info("→ CROSS-DOC COMPARISON")
         answer, sources = cross_doc_comparison(
-            user_question, embedder.encode(user_question).tolist(), all_sources
+            user_question, get_embedder().encode(user_question).tolist(), all_sources
         )
         return {"answer": answer, "sources": sources}
 
@@ -840,7 +846,7 @@ and ask any questions about them. Keep it to 2-3 sentences. Be enthusiastic but 
         return {"answer": answer, "sources": sources}
 
     # Embedding for remaining strategies
-    question_embedding = embedder.encode(user_question).tolist()
+    question_embedding = get_embedder().encode(user_question).tolist()
 
     if strategy == "standard_rag":
         log.info("→ STANDARD RAG")
