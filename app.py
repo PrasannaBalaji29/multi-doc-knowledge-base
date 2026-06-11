@@ -23,6 +23,9 @@ ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'}
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
 def get_db():
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
     return psycopg2.connect(
         host=os.getenv("DB_HOST"),
         user=os.getenv("DB_USER"),
