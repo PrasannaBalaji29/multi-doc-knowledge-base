@@ -16,7 +16,7 @@ load_dotenv()
 client_title = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://multi-doc-knowledge-base.vercel.app", "https://multi-doc-knowledge-base-79cz54c0q-prasannabalaji29s-projects.vercel.app", "http://localhost:5173"])
 
 # ── Supported file types ───────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'}
