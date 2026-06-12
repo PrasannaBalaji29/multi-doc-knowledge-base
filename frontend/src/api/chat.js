@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const BASE = 'http://localhost:5000'
+const BASE = 'https://multi-doc-knowledge-base-production.up.railway.app'
 
 // ── Supported file types (must match backend ALLOWED_EXTENSIONS) ──────────────
 export const ALLOWED_FILE_TYPES = [
