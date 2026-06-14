@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const BASE = 'https://multi-doc-knowledge-base-production.up.railway.app'
+const BASE = 'https://prasannabalaji-multidoc-ai-backend.hf.space'
 
 // ── Supported file types (must match backend ALLOWED_EXTENSIONS) ──────────────
 export const ALLOWED_FILE_TYPES = [
