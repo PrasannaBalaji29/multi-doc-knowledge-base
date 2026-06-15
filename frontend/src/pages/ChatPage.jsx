@@ -427,8 +427,12 @@ export default function ChatPage() {
     return (
       <div style={{ height: '100dvh', background: '#080812', overflow: 'hidden', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
         {mobileTab === 'history' && (
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ width: '100%', flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <style>{`
+              .mobile-sidebar > div:first-child { width: 100% !important; min-height: 100vh; }
+              .mobile-docs > div:first-child { width: 100% !important; }
+            `}</style>
+            <div className="mobile-sidebar">
               <Sidebar
                 history={history}
                 onNewChat={handleNewChat}
@@ -445,8 +449,8 @@ export default function ChatPage() {
           </div>
         )}
         {mobileTab === 'docs' && (
-          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex' }}>
-            <div style={{ width: '100%' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div className="mobile-docs">
               <DocsPanel
                 docs={docs}
                 onUpload={handleUpload}
