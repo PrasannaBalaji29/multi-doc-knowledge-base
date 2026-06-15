@@ -232,8 +232,7 @@ export default function ChatPage() {
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
-      height: mobile ? '100vh' : 'auto',
-      paddingBottom: mobile ? '60px' : '0',
+      height: '100%',
     }}>
       {/* Header */}
       <div style={{
@@ -428,21 +427,27 @@ export default function ChatPage() {
   // ── Mobile layout ──────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div style={{ height: '100vh', background: '#080812', overflow: 'hidden', position: 'fixed', width: '100%' }}>
+      <div style={{ height: '100dvh', background: '#080812', overflow: 'hidden', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
         {mobileTab === 'history' && (
-          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-            <Sidebar
-              history={history}
-              onNewChat={handleNewChat}
-              onClear={handleClear}
-              onSelectChat={handleSelectChat}
-              activeSession={sessionId}
-            />
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <div style={{ width: '100%' }}>
+              <Sidebar
+                history={history}
+                onNewChat={handleNewChat}
+                onClear={handleClear}
+                onSelectChat={handleSelectChat}
+                activeSession={sessionId}
+              />
+            </div>
           </div>
         )}
-        {mobileTab === 'chat' && <ChatPanel mobile={true} />}
+        {mobileTab === 'chat' && (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', display: 'flex', flexDirection: 'column' }}>
+            <ChatPanel mobile={true} />
+          </div>
+        )}
         {mobileTab === 'docs' && (
-          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
             <DocsPanel
               docs={docs}
               onUpload={handleUpload}
