@@ -450,7 +450,8 @@ export default function ChatPage() {
         )}
         {mobileTab === 'docs' && (
           <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-            <div className="mobile-docs">
+            <style>{`.mobile-docs > div { width: 100% !important; }`}</style>
+            <div className="mobile-docs" style={{ width: '100%' }}>
               <DocsPanel
                 docs={docs}
                 onUpload={handleUpload}
