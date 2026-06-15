@@ -38,7 +38,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
   return (
     <div style={{
-      width: '100%',
+      width: '260px',
       background: '#0a0a18',
       borderRight: '1px solid #1e1e3a',
       display: 'flex',
