@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { sendQuestion, uploadFile, getHistory, clearHistory, deleteDoc, streamQuestion, getDocs, isFileAllowed, ALLOWED_FILE_TYPES } from '../api/chat'
+import { uploadFile, getHistory, clearHistory, deleteDoc, streamQuestion, getDocs, isFileAllowed, ALLOWED_FILE_TYPES } from '../api/chat'
 import Sidebar from '../components/Sidebar'
 import MessageBubble from '../components/MessageBubble'
 import DocsPanel from '../components/DocsPanel'
@@ -41,8 +41,9 @@ export default function ChatPage() {
   const [uploading, setUploading]     = useState(false)
   const [selectedDoc, setSelectedDoc] = useState('all')
   const [mobileTab, setMobileTab]     = useState('chat')
-  const bottomRef = useRef(null)
-  const isMobile  = useIsMobile()
+  const bottomRef  = useRef(null)
+  const textareaRef = useRef(null)
+  const isMobile   = useIsMobile()
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -66,6 +67,9 @@ export default function ChatPage() {
     if (!input.trim() || loading) return
     const question = input.trim()
     setInput('')
+
+    // Restore focus to textarea after send (mobile fix)
+    setTimeout(() => textareaRef.current?.focus(), 50)
 
     setMessages(prev => [...prev, {
       role: 'user',
@@ -183,7 +187,7 @@ export default function ChatPage() {
     '📊 Are there any statistics or data mentioned?',
   ]
 
-  // ── Mobile bottom tab bar ──────────────────────────────────────────────────
+  // ── Bottom tab bar (mobile only) ───────────────────────────────────────────
   const MobileTabBar = () => (
     <div style={{
       position: 'fixed', bottom: 0, left: 0, right: 0,
@@ -194,9 +198,9 @@ export default function ChatPage() {
       zIndex: 100,
     }}>
       {[
-        { id: 'history', icon: <History size={20} />, label: 'History' },
-        { id: 'chat',    icon: <MessageSquare size={20} />, label: 'Chat' },
-        { id: 'docs',    icon: <FileText size={20} />, label: 'Docs' },
+        { id: 'history', icon: <History size={22} />, label: 'History' },
+        { id: 'chat',    icon: <MessageSquare size={22} />, label: 'Chat' },
+        { id: 'docs',    icon: <FileText size={22} />, label: 'Docs' },
       ].map(tab => (
         <button
           key={tab.id}
@@ -210,7 +214,8 @@ export default function ChatPage() {
             alignItems: 'center', justifyContent: 'center',
             gap: '4px', cursor: 'pointer',
             borderTop: mobileTab === tab.id ? '2px solid #7c3aed' : '2px solid transparent',
-            fontSize: '10px', fontWeight: '600',
+            fontSize: '11px', fontWeight: '600',
+            transition: 'all 0.2s'
           }}
         >
           {tab.icon}
@@ -220,49 +225,67 @@ export default function ChatPage() {
     </div>
   )
 
-  // ── Chat panel (shared between mobile and desktop) ─────────────────────────
-  const ChatPanel = () => (
+  // ── Chat panel (used in both mobile and desktop) ───────────────────────────
+  const ChatPanel = ({ mobile = false }) => (
     <div style={{
-      flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      paddingBottom: isMobile ? '60px' : '0'
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      height: mobile ? '100vh' : 'auto',
+      paddingBottom: mobile ? '60px' : '0',
     }}>
       {/* Header */}
       <div style={{
-        padding: '16px 24px',
+        padding: mobile ? '12px 16px' : '16px 24px',
         borderBottom: '1px solid #1e1e3a',
         background: 'rgba(8,8,18,0.95)',
-        display: 'flex', alignItems: 'center', gap: '10px'
+        display: 'flex', alignItems: 'center', gap: '8px',
+        flexShrink: 0,
       }}>
         <Sparkles size={18} color="#a78bfa" />
-        <span style={{ fontSize: '16px', fontWeight: '700', color: '#f0f0f0' }}>
-          Multi-Document Knowledge Base
+        <span style={{
+          fontSize: mobile ? '13px' : '16px',
+          fontWeight: '700', color: '#f0f0f0',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}>
+          {mobile ? 'MultiDoc AI' : 'Multi-Document Knowledge Base'}
         </span>
         <span style={{
           background: '#1e1e3a', color: '#a78bfa',
           fontSize: '11px', padding: '3px 10px',
           borderRadius: '20px', border: '1px solid #2a2a4a',
-          fontWeight: '600'
+          fontWeight: '600', flexShrink: 0
         }}>
           RAG
         </span>
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+      <div style={{
+        flex: 1, overflowY: 'auto',
+        padding: mobile ? '16px' : '24px',
+        WebkitOverflowScrolling: 'touch',
+      }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: 'center', marginTop: '60px' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🧠</div>
-            <p style={{ fontSize: '22px', fontWeight: '700', color: '#f0f0f0', marginBottom: '8px' }}>
+          <div style={{ textAlign: 'center', marginTop: mobile ? '30px' : '60px' }}>
+            <div style={{ fontSize: mobile ? '36px' : '48px', marginBottom: '16px' }}>🧠</div>
+            <p style={{
+              fontSize: mobile ? '18px' : '22px',
+              fontWeight: '700', color: '#f0f0f0', marginBottom: '8px'
+            }}>
               Ask anything about your documents
             </p>
-            <p style={{ fontSize: '14px', color: '#444', marginBottom: '32px' }}>
-              Upload PDF, Word, TXT, CSV, Excel, PowerPoint or Markdown and start chatting
+            <p style={{ fontSize: '13px', color: '#444', marginBottom: '24px' }}>
+              Upload PDF, Word, TXT, CSV, Excel, PowerPoint or Markdown
             </p>
           </div>
         )}
+
         {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
+          <MessageBubble key={i} msg={msg} mobile={mobile} />
         ))}
+
         {loading && (
           <div style={{
             display: 'flex', alignItems: 'center',
@@ -281,14 +304,18 @@ export default function ChatPage() {
 
       {/* Input Area */}
       <div style={{
-        padding: '16px 24px',
+        padding: mobile ? '10px 12px' : '16px 24px',
         borderTop: '1px solid #1e1e3a',
-        background: 'rgba(8,8,18,0.95)'
+        background: 'rgba(8,8,18,0.95)',
+        flexShrink: 0,
       }}>
+        {/* Doc Selector */}
         {docs.length > 0 && (
           <div style={{
             display: 'flex', gap: '6px',
-            marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center'
+            marginBottom: '8px', flexWrap: 'wrap', alignItems: 'center',
+            overflowX: mobile ? 'auto' : 'unset',
+            flexWrap: 'wrap',
           }}>
             <span style={{ fontSize: '11px', color: '#555' }}>Select:</span>
             <button
@@ -299,7 +326,8 @@ export default function ChatPage() {
                 borderRadius: '20px', padding: '4px 12px',
                 cursor: 'pointer',
                 color: selectedDoc === 'all' ? 'white' : '#888',
-                fontSize: '11px', fontWeight: '500', transition: 'all 0.2s'
+                fontSize: '11px', fontWeight: '500',
+                transition: 'all 0.2s', flexShrink: 0,
               }}
             >
               🌐 All Docs
@@ -310,13 +338,13 @@ export default function ChatPage() {
                 <button key={i} onClick={() => setSelectedDoc(isSelected ? 'all' : doc.name)} style={{
                   background: isSelected ? '#1e1e3a' : 'transparent',
                   border: `1px solid ${isSelected ? '#7c3aed' : '#2a2a4a'}`,
-                  borderRadius: '20px', padding: '4px 12px',
+                  borderRadius: '20px', padding: '4px 10px',
                   cursor: 'pointer',
                   color: isSelected ? '#a78bfa' : '#888',
                   fontSize: '11px', fontWeight: '500',
-                  maxWidth: '160px', overflow: 'hidden',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  transition: 'all 0.2s'
+                  maxWidth: mobile ? '120px' : '160px',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  transition: 'all 0.2s', flexShrink: 0,
                 }}>
                   {getDocIcon(doc.name)} {doc.name}
                 </button>
@@ -325,14 +353,18 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Suggestion chips */}
         {messages.length === 0 && (
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <div style={{
+            display: 'flex', gap: '6px',
+            marginBottom: '10px', flexWrap: 'wrap',
+          }}>
             {suggestions.map((s, i) => (
               <button key={i} onClick={() => setInput(s)} style={{
                 background: 'transparent', border: '1px solid #2a2a4a',
-                color: '#a78bfa', padding: '6px 14px',
+                color: '#a78bfa', padding: mobile ? '5px 10px' : '6px 14px',
                 borderRadius: '20px', cursor: 'pointer',
-                fontSize: '12px', fontWeight: '500'
+                fontSize: mobile ? '11px' : '12px', fontWeight: '500',
               }}>
                 {s}
               </button>
@@ -340,39 +372,55 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Text input */}
         <div style={{
-          display: 'flex', gap: '12px',
+          display: 'flex', gap: '8px',
           background: '#0f0f1f', border: '1px solid #2a2a4a',
-          borderRadius: '14px', padding: '8px 8px 8px 16px',
+          borderRadius: '14px', padding: '8px 8px 8px 14px',
           boxShadow: '0 0 30px rgba(124,58,237,0.1)'
         }}>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Ask anything about your documents..."
-            rows={2}
+            rows={mobile ? 1 : 2}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="sentences"
+            spellCheck="false"
             style={{
               flex: 1, background: 'transparent', border: 'none',
               color: '#f0f0f0', fontSize: '14px', resize: 'none',
               outline: 'none', fontFamily: 'Inter, sans-serif',
-              lineHeight: '1.6', paddingTop: '6px'
+              lineHeight: '1.6', paddingTop: '4px',
+              WebkitUserSelect: 'text',
             }}
           />
-          <button onClick={handleSend} disabled={loading} style={{
-            background: loading ? '#2a2a4a' : 'linear-gradient(135deg, #7c3aed, #a855f7)',
-            border: 'none', borderRadius: '10px',
-            padding: '0 20px', cursor: loading ? 'not-allowed' : 'pointer',
-            color: 'white', display: 'flex', alignItems: 'center', gap: '8px',
-            fontSize: '14px', fontWeight: '500',
-            minWidth: '90px', justifyContent: 'center'
-          }}>
-            <Send size={15} /> Send
+          <button
+            onClick={handleSend}
+            disabled={loading}
+            style={{
+              background: loading ? '#2a2a4a' : 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              border: 'none', borderRadius: '10px',
+              padding: mobile ? '0 14px' : '0 20px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              color: 'white', display: 'flex', alignItems: 'center',
+              gap: '6px', fontSize: '14px', fontWeight: '500',
+              minWidth: mobile ? '60px' : '90px', justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Send size={15} />
+            {!mobile && 'Send'}
           </button>
         </div>
-        <p style={{ fontSize: '11px', color: '#333', marginTop: '8px', textAlign: 'center' }}>
-          Press Enter to send · Shift+Enter for new line
-        </p>
+        {!mobile && (
+          <p style={{ fontSize: '11px', color: '#333', marginTop: '8px', textAlign: 'center' }}>
+            Press Enter to send · Shift+Enter for new line
+          </p>
+        )}
       </div>
     </div>
   )
@@ -380,9 +428,9 @@ export default function ChatPage() {
   // ── Mobile layout ──────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <div style={{ height: '100vh', background: '#080812', overflow: 'hidden' }}>
+      <div style={{ height: '100vh', background: '#080812', overflow: 'hidden', position: 'fixed', width: '100%' }}>
         {mobileTab === 'history' && (
-          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto' }}>
+          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
             <Sidebar
               history={history}
               onNewChat={handleNewChat}
@@ -392,9 +440,9 @@ export default function ChatPage() {
             />
           </div>
         )}
-        {mobileTab === 'chat' && <ChatPanel />}
+        {mobileTab === 'chat' && <ChatPanel mobile={true} />}
         {mobileTab === 'docs' && (
-          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto' }}>
+          <div style={{ height: '100vh', paddingBottom: '60px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
             <DocsPanel
               docs={docs}
               onUpload={handleUpload}
@@ -408,7 +456,7 @@ export default function ChatPage() {
     )
   }
 
-  // ── Desktop layout (unchanged) ─────────────────────────────────────────────
+  // ── Desktop layout (100% unchanged) ───────────────────────────────────────
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#080812' }}>
       <Sidebar
@@ -418,7 +466,7 @@ export default function ChatPage() {
         onSelectChat={handleSelectChat}
         activeSession={sessionId}
       />
-      <ChatPanel />
+      <ChatPanel mobile={false} />
       <DocsPanel
         docs={docs}
         onUpload={handleUpload}
