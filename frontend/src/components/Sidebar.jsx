@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Trash2, Plus, Search, Pin, PinOff, Pencil, X, Check } from 'lucide-react'
 import { pinSession, renameSession, deleteSession } from '../api/chat'
 
@@ -7,7 +7,12 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
   const [menuOpenId, setMenuOpenId]   = useState(null)
   const [renamingId, setRenamingId]   = useState(null)
   const [renameValue, setRenameValue] = useState('')
-  const menuRef                       = useRef(null)
+  const [localHistory, setLocalHistory] = useState([])
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    setLocalHistory(history)
+  }, [history])
 
   useEffect(() => {
     const handler = (e) => {
@@ -19,7 +24,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const filteredHistory = history.filter(item =>
+  const filteredHistory = localHistory.filter(item =>
     (item.custom_title || item.title || item.question).toLowerCase().includes(search.toLowerCase())
   )
 
@@ -29,13 +34,15 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
     const groups   = { Pinned: pinned, Today: [], Yesterday: [], Older: [] }
 
     unpinned.forEach(item => {
-      const raw      = item.timestamp
-      const date     = new Date(raw.endsWith('Z') ? raw : raw + '+05:30')
-      const now      = new Date()
-      const today    = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const raw  = item.timestamp || ''
+      const date = new Date(raw.includes('T') || raw.endsWith('Z') ? raw : raw + '+05:30')
+      const now  = new Date()
+      const nowIST = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+      const today = new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate())
       const yesterday = new Date(today)
       yesterday.setDate(today.getDate() - 1)
-      const itemDay  = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      const itemIST = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+      const itemDay = new Date(itemIST.getFullYear(), itemIST.getMonth(), itemIST.getDate())
 
       if (itemDay.getTime() === today.getTime()) {
         groups.Today.push(item)
@@ -53,7 +60,12 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
   const handlePin = async (e, item) => {
     e.stopPropagation()
     setMenuOpenId(null)
-    await pinSession(item.session_id, !item.is_pinned)
+    const newVal = !item.is_pinned
+    // Update locally immediately
+    setLocalHistory(prev => prev.map(h =>
+      h.session_id === item.session_id ? { ...h, is_pinned: newVal } : h
+    ))
+    await pinSession(item.session_id, newVal)
     onHistoryChange()
   }
 
@@ -66,6 +78,9 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
   const handleRenameSubmit = async (session_id) => {
     if (renameValue.trim()) {
+      setLocalHistory(prev => prev.map(h =>
+        h.session_id === session_id ? { ...h, custom_title: renameValue.trim() } : h
+      ))
       await renameSession(session_id, renameValue.trim())
       onHistoryChange()
     }
@@ -76,6 +91,8 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
     e.stopPropagation()
     setMenuOpenId(null)
     if (!window.confirm('Delete this chat?')) return
+    // Remove locally immediately
+    setLocalHistory(prev => prev.filter(h => h.session_id !== item.session_id))
     await deleteSession(item.session_id)
     onHistoryChange()
   }
@@ -88,7 +105,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
     return (
       <div
-        key={i}
+        key={item.session_id + '-' + i}
         onClick={() => !isRenaming && onSelectChat(item.session_id)}
         style={{
           padding: '8px 10px',
@@ -103,9 +120,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
           gap: '6px',
         }}
       >
-        {item.is_pinned && (
-          <Pin size={10} color="#a78bfa" style={{ flexShrink: 0 }} />
-        )}
+        {item.is_pinned && <Pin size={10} color="#a78bfa" style={{ flexShrink: 0 }} />}
 
         {isRenaming ? (
           <div
@@ -121,38 +136,26 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
                 if (e.key === 'Escape') setRenamingId(null)
               }}
               style={{
-                flex: 1,
-                background: '#0a0a18',
-                border: '1px solid #7c3aed',
-                borderRadius: '4px',
-                color: '#f0f0f0',
-                fontSize: '12px',
-                padding: '2px 6px',
-                outline: 'none'
+                flex: 1, background: '#0a0a18',
+                border: '1px solid #7c3aed', borderRadius: '4px',
+                color: '#f0f0f0', fontSize: '12px',
+                padding: '2px 6px', outline: 'none'
               }}
             />
-            <button
-              onClick={() => handleRenameSubmit(item.session_id)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4ade80', padding: '2px' }}
-            >
+            <button onClick={() => handleRenameSubmit(item.session_id)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4ade80', padding: '2px' }}>
               <Check size={13} />
             </button>
-            <button
-              onClick={() => setRenamingId(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '2px' }}
-            >
+            <button onClick={() => setRenamingId(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', padding: '2px' }}>
               <X size={13} />
             </button>
           </div>
         ) : (
           <p style={{
-            fontSize: '12px',
-            color: '#d1d5db',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            margin: 0,
-            flex: 1
+            fontSize: '12px', color: '#d1d5db',
+            overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap', margin: 0, flex: 1
           }}>
             {displayTitle}
           </p>
@@ -160,20 +163,11 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
         {!isRenaming && (
           <button
-            onClick={e => {
-              e.stopPropagation()
-              setMenuOpenId(isMenuOpen ? null : item.session_id)
-            }}
+            onClick={e => { e.stopPropagation(); setMenuOpenId(isMenuOpen ? null : item.session_id) }}
             style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#555',
-              padding: '2px 4px',
-              borderRadius: '4px',
-              fontSize: '14px',
-              lineHeight: 1,
-              flexShrink: 0
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#555', padding: '2px 4px', borderRadius: '4px',
+              fontSize: '14px', lineHeight: 1, flexShrink: 0
             }}
             onMouseOver={e => e.currentTarget.style.color = '#a78bfa'}
             onMouseOut={e => e.currentTarget.style.color = '#555'}
@@ -187,16 +181,10 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
             ref={menuRef}
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'absolute',
-              top: '28px',
-              right: '0px',
-              background: '#12122a',
-              border: '1px solid #2a2a4a',
-              borderRadius: '10px',
-              padding: '6px',
-              zIndex: 999,
-              minWidth: '140px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+              position: 'absolute', top: '28px', right: '0px',
+              background: '#12122a', border: '1px solid #2a2a4a',
+              borderRadius: '10px', padding: '6px', zIndex: 999,
+              minWidth: '140px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
             }}
           >
             <button
@@ -205,10 +193,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
               onMouseOver={e => e.currentTarget.style.background = '#1e1e3a'}
               onMouseOut={e => e.currentTarget.style.background = 'transparent'}
             >
-              {item.is_pinned
-                ? <><PinOff size={13} /> Unpin</>
-                : <><Pin size={13} /> Pin</>
-              }
+              {item.is_pinned ? <><PinOff size={13} /> Unpin</> : <><Pin size={13} /> Pin</>}
             </button>
 
             <button
@@ -236,41 +221,25 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
   return (
     <div style={{
-      width: '260px',
-      background: '#0a0a18',
-      borderRight: '1px solid #1e1e3a',
-      display: 'flex',
-      flexDirection: 'column',
-      padding: '16px 12px',
-      gap: '12px'
+      width: '260px', background: '#0a0a18',
+      borderRight: '1px solid #1e1e3a', display: 'flex',
+      flexDirection: 'column', padding: '16px 12px', gap: '12px'
     }}>
-
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        gap: '10px', padding: '4px 8px', marginBottom: '4px'
-      }}>
-        <div style={{
-          background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-          borderRadius: '10px', padding: '8px'
-        }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 8px', marginBottom: '4px' }}>
+        <div style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)', borderRadius: '10px', padding: '8px' }}>
           <MessageSquare size={16} color="white" />
         </div>
         <div>
-          <p style={{ fontWeight: '700', fontSize: '14px', color: '#f0f0f0' }}>
-            Multi-Document
-          </p>
+          <p style={{ fontWeight: '700', fontSize: '14px', color: '#f0f0f0' }}>Multi-Document</p>
           <p style={{ fontSize: '11px', color: '#555' }}>Knowledge Base</p>
         </div>
       </div>
 
       <button onClick={onNewChat} style={{
-        background: 'transparent',
-        border: '1px solid #2a2a4a',
-        borderRadius: '10px', padding: '10px',
-        color: '#a78bfa', cursor: 'pointer',
-        fontSize: '13px', fontWeight: '500',
-        display: 'flex', alignItems: 'center',
-        gap: '8px', width: '100%'
+        background: 'transparent', border: '1px solid #2a2a4a',
+        borderRadius: '10px', padding: '10px', color: '#a78bfa',
+        cursor: 'pointer', fontSize: '13px', fontWeight: '500',
+        display: 'flex', alignItems: 'center', gap: '8px', width: '100%'
       }}>
         <Plus size={15} /> New Chat
       </button>
@@ -300,28 +269,22 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
               <p style={{
                 fontSize: '11px',
                 color: label === 'Pinned' ? '#a78bfa' : '#444',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                marginBottom: '6px',
-                padding: '0 4px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
+                textTransform: 'uppercase', letterSpacing: '0.5px',
+                marginBottom: '6px', padding: '0 4px',
+                display: 'flex', alignItems: 'center', gap: '4px'
               }}>
-                {label === 'Pinned' && <Pin size={10} />}
-                {label}
+                {label === 'Pinned' && <Pin size={10} />}{label}
               </p>
               {items.map((item, i) => renderChatItem(item, i))}
             </div>
           )
         )}
-
-        {history.length === 0 && (
+        {localHistory.length === 0 && (
           <p style={{ fontSize: '12px', color: '#444', textAlign: 'center', marginTop: '20px' }}>
             No chat history yet
           </p>
         )}
-        {history.length > 0 && filteredHistory.length === 0 && (
+        {localHistory.length > 0 && filteredHistory.length === 0 && (
           <p style={{ fontSize: '12px', color: '#444', textAlign: 'center', marginTop: '20px' }}>
             No results for "{search}"
           </p>
@@ -332,8 +295,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
         background: 'transparent', border: '1px solid #1e1e3a',
         color: '#555', padding: '8px 12px', borderRadius: '8px',
         cursor: 'pointer', fontSize: '12px',
-        display: 'flex', alignItems: 'center',
-        gap: '6px', width: '100%'
+        display: 'flex', alignItems: 'center', gap: '6px', width: '100%'
       }}
         onMouseOver={e => e.currentTarget.style.borderColor = '#7c3aed'}
         onMouseOut={e => e.currentTarget.style.borderColor = '#1e1e3a'}
@@ -345,17 +307,9 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 }
 
 const menuBtnStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  width: '100%',
-  background: 'transparent',
-  border: 'none',
-  color: '#d1d5db',
-  fontSize: '12px',
-  padding: '8px 10px',
-  borderRadius: '6px',
-  cursor: 'pointer',
-  textAlign: 'left',
+  display: 'flex', alignItems: 'center', gap: '8px',
+  width: '100%', background: 'transparent', border: 'none',
+  color: '#d1d5db', fontSize: '12px', padding: '8px 10px',
+  borderRadius: '6px', cursor: 'pointer', textAlign: 'left',
   transition: 'background 0.15s'
 }
