@@ -434,12 +434,13 @@ export default function ChatPage() {
             `}</style>
             <div className="mobile-sidebar">
               <Sidebar
-                history={history}
-                onNewChat={handleNewChat}
-                onClear={handleClear}
-                onSelectChat={handleSelectChat}
-                activeSession={sessionId}
-              />
+  history={history}
+  onNewChat={handleNewChat}
+  onClear={handleClear}
+  onSelectChat={handleSelectChat}
+  activeSession={sessionId}
+  onHistoryChange={loadHistory}
+/>
             </div>
           </div>
         )}
@@ -470,12 +471,13 @@ export default function ChatPage() {
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#080812' }}>
       <Sidebar
-        history={history}
-        onNewChat={handleNewChat}
-        onClear={handleClear}
-        onSelectChat={handleSelectChat}
-        activeSession={sessionId}
-      />
+  history={history}
+  onNewChat={handleNewChat}
+  onClear={handleClear}
+  onSelectChat={handleSelectChat}
+  activeSession={sessionId}
+  onHistoryChange={loadHistory}
+/>
       <ChatPanel {...chatPanelProps} mobile={false} />
       <DocsPanel
         docs={docs}

@@ -2,7 +2,6 @@ import axios from 'axios'
 
 const BASE = 'https://prasannabalaji-multidoc-ai-backend.hf.space'
 
-// ── Supported file types (must match backend ALLOWED_EXTENSIONS) ──────────────
 export const ALLOWED_FILE_TYPES = [
   '.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'
 ]
@@ -16,13 +15,10 @@ export const ALLOWED_MIME_TYPES = [
   'text/markdown',
 ]
 
-// ── Validate file before uploading ────────────────────────────────────────────
 export const isFileAllowed = (file) => {
   const ext = '.' + file.name.split('.').pop().toLowerCase()
   return ALLOWED_FILE_TYPES.includes(ext)
 }
-
-// ── API calls ─────────────────────────────────────────────────────────────────
 
 export const sendQuestion = (question, session_id, selected_doc = 'all') =>
   axios.post(`${BASE}/query`, { question, session_id, selected_doc })
@@ -49,6 +45,15 @@ export const clearHistory = (session_id) =>
 
 export const deleteDoc = (filename) =>
   axios.delete(`${BASE}/delete-doc`, { params: { filename } })
+
+export const deleteSession = (session_id) =>
+  axios.delete(`${BASE}/history-session`, { params: { session_id } })
+
+export const pinSession = (session_id, is_pinned) =>
+  axios.patch(`${BASE}/history-session/pin`, { session_id, is_pinned })
+
+export const renameSession = (session_id, title) =>
+  axios.patch(`${BASE}/history-session/rename`, { session_id, title })
 
 export const streamQuestion = (
   question,
