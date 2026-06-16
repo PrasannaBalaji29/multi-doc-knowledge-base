@@ -9,7 +9,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
   const [renameValue, setRenameValue] = useState('')
   const menuRef                       = useRef(null)
 
-  // Close menu when clicking outside
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -25,19 +24,18 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
   )
 
   const groupByDate = (items) => {
-    const pinned = items.filter(i => i.is_pinned)
+    const pinned   = items.filter(i => i.is_pinned)
     const unpinned = items.filter(i => !i.is_pinned)
-
-    const groups = { Pinned: pinned, Today: [], Yesterday: [], Older: [] }
+    const groups   = { Pinned: pinned, Today: [], Yesterday: [], Older: [] }
 
     unpinned.forEach(item => {
-      const raw  = item.timestamp
-      const date = new Date(raw + '+05:30')
-      const now  = new Date()
-      const today     = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const raw      = item.timestamp
+      const date     = new Date(raw.endsWith('Z') ? raw : raw + '+05:30')
+      const now      = new Date()
+      const today    = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       const yesterday = new Date(today)
       yesterday.setDate(today.getDate() - 1)
-      const itemDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      const itemDay  = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
       if (itemDay.getTime() === today.getTime()) {
         groups.Today.push(item)
@@ -55,8 +53,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
   const handlePin = async (e, item) => {
     e.stopPropagation()
     setMenuOpenId(null)
-    const newVal = !item.is_pinned
-    await pinSession(item.session_id, newVal)
+    await pinSession(item.session_id, !item.is_pinned)
     onHistoryChange()
   }
 
@@ -104,18 +101,17 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          group: 'item'
         }}
       >
-        {/* Pin indicator */}
         {item.is_pinned && (
           <Pin size={10} color="#a78bfa" style={{ flexShrink: 0 }} />
         )}
 
-        {/* Title or rename input */}
         {isRenaming ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}
-            onClick={e => e.stopPropagation()}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}
+            onClick={e => e.stopPropagation()}
+          >
             <input
               autoFocus
               value={renameValue}
@@ -162,7 +158,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
           </p>
         )}
 
-        {/* Three dots button */}
         {!isRenaming && (
           <button
             onClick={e => {
@@ -187,7 +182,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
           </button>
         )}
 
-        {/* Context menu */}
         {isMenuOpen && (
           <div
             ref={menuRef}
@@ -205,7 +199,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
               boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
             }}
           >
-            {/* Pin / Unpin */}
             <button
               onClick={e => handlePin(e, item)}
               style={menuBtnStyle}
@@ -218,7 +211,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
               }
             </button>
 
-            {/* Rename */}
             <button
               onClick={e => handleRenameStart(e, item)}
               style={menuBtnStyle}
@@ -228,7 +220,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
               <Pencil size={13} /> Rename
             </button>
 
-            {/* Delete */}
             <button
               onClick={e => handleDelete(e, item)}
               style={{ ...menuBtnStyle, color: '#f87171' }}
@@ -254,7 +245,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
       gap: '12px'
     }}>
 
-      {/* Logo */}
       <div style={{
         display: 'flex', alignItems: 'center',
         gap: '10px', padding: '4px 8px', marginBottom: '4px'
@@ -273,7 +263,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
         </div>
       </div>
 
-      {/* New Chat */}
       <button onClick={onNewChat} style={{
         background: 'transparent',
         border: '1px solid #2a2a4a',
@@ -286,7 +275,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
         <Plus size={15} /> New Chat
       </button>
 
-      {/* Search */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         background: '#12122a', border: '1px solid #1e1e3a',
@@ -305,16 +293,20 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
         />
       </div>
 
-      {/* History */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {Object.entries(grouped).map(([label, items]) =>
           items.length > 0 && (
             <div key={label} style={{ marginBottom: '16px' }}>
               <p style={{
-                fontSize: '11px', color: label === 'Pinned' ? '#a78bfa' : '#444',
-                textTransform: 'uppercase', letterSpacing: '0.5px',
-                marginBottom: '6px', padding: '0 4px',
-                display: 'flex', alignItems: 'center', gap: '4px'
+                fontSize: '11px',
+                color: label === 'Pinned' ? '#a78bfa' : '#444',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                marginBottom: '6px',
+                padding: '0 4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
               }}>
                 {label === 'Pinned' && <Pin size={10} />}
                 {label}
@@ -336,7 +328,6 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
         )}
       </div>
 
-      {/* Clear History */}
       <button onClick={onClear} style={{
         background: 'transparent', border: '1px solid #1e1e3a',
         color: '#555', padding: '8px 12px', borderRadius: '8px',
