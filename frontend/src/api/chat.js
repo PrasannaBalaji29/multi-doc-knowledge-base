@@ -46,15 +46,6 @@ export const clearHistory = (session_id) =>
 export const deleteDoc = (filename) =>
   axios.delete(`${BASE}/delete-doc`, { params: { filename } })
 
-export const deleteSession = (session_id) =>
-  axios.delete(`${BASE}/history-session`, { params: { session_id } })
-
-export const pinSession = (session_id, is_pinned) =>
-  axios.patch(`${BASE}/history-session/pin`, { session_id, is_pinned })
-
-export const renameSession = (session_id, title) =>
-  axios.patch(`${BASE}/history-session/rename`, { session_id, title })
-
 export const streamQuestion = (
   question,
   session_id,

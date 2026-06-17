@@ -31,7 +31,6 @@ const useIsMobile = () => {
   return isMobile
 }
 
-// ── Mobile Tab Bar ─────────────────────────────────────────────────────────
 const MobileTabBar = ({ mobileTab, setMobileTab }) => (
   <div style={{
     position: 'fixed', bottom: 0, left: 0, right: 0,
@@ -69,7 +68,6 @@ const MobileTabBar = ({ mobileTab, setMobileTab }) => (
   </div>
 )
 
-// ── Chat Panel ─────────────────────────────────────────────────────────────
 const ChatPanel = ({
   mobile, messages, input, setInput, loading, docs, selectedDoc,
   setSelectedDoc, bottomRef, textareaRef, handleSend, handleKey, suggestions
@@ -78,7 +76,6 @@ const ChatPanel = ({
     flex: 1, display: 'flex', flexDirection: 'column',
     overflow: 'hidden', height: '100%',
   }}>
-    {/* Header */}
     <div style={{
       padding: mobile ? '12px 16px' : '16px 24px',
       borderBottom: '1px solid #1e1e3a',
@@ -104,7 +101,6 @@ const ChatPanel = ({
       </span>
     </div>
 
-    {/* Messages */}
     <div style={{
       flex: 1, overflowY: 'auto',
       padding: mobile ? '16px' : '24px',
@@ -145,14 +141,12 @@ const ChatPanel = ({
       <div ref={bottomRef} />
     </div>
 
-    {/* Input Area */}
     <div style={{
       padding: mobile ? '10px 12px' : '16px 24px',
       borderTop: '1px solid #1e1e3a',
       background: 'rgba(8,8,18,0.95)',
       flexShrink: 0,
     }}>
-      {/* Doc Selector */}
       {docs.length > 0 && (
         <div style={{
           display: 'flex', gap: '6px',
@@ -194,7 +188,6 @@ const ChatPanel = ({
         </div>
       )}
 
-      {/* Suggestion chips */}
       {messages.length === 0 && (
         <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
           {suggestions.map((s, i) => (
@@ -210,7 +203,6 @@ const ChatPanel = ({
         </div>
       )}
 
-      {/* Text input */}
       <div style={{
         display: 'flex', gap: '8px',
         background: '#0f0f1f', border: '1px solid #2a2a4a',
@@ -422,7 +414,6 @@ export default function ChatPage() {
     handleSend, handleKey, suggestions
   }
 
-  // ── Mobile layout ──────────────────────────────────────────────────────────
   if (isMobile) {
     return (
       <div style={{ height: '100dvh', background: '#080812', overflow: 'hidden', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
@@ -434,13 +425,12 @@ export default function ChatPage() {
             `}</style>
             <div className="mobile-sidebar">
               <Sidebar
-  history={history}
-  onNewChat={handleNewChat}
-  onClear={handleClear}
-  onSelectChat={handleSelectChat}
-  activeSession={sessionId}
-  onHistoryChange={loadHistory}
-/>
+                history={history}
+                onNewChat={handleNewChat}
+                onClear={handleClear}
+                onSelectChat={handleSelectChat}
+                activeSession={sessionId}
+              />
             </div>
           </div>
         )}
@@ -467,17 +457,15 @@ export default function ChatPage() {
     )
   }
 
-  // ── Desktop layout (100% unchanged) ───────────────────────────────────────
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#080812' }}>
       <Sidebar
-  history={history}
-  onNewChat={handleNewChat}
-  onClear={handleClear}
-  onSelectChat={handleSelectChat}
-  activeSession={sessionId}
-  onHistoryChange={loadHistory}
-/>
+        history={history}
+        onNewChat={handleNewChat}
+        onClear={handleClear}
+        onSelectChat={handleSelectChat}
+        activeSession={sessionId}
+      />
       <ChatPanel {...chatPanelProps} mobile={false} />
       <DocsPanel
         docs={docs}
