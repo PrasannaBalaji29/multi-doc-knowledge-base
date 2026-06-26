@@ -2,7 +2,7 @@
 query.py — MultiDoc AI · Production-Grade RAG Engine
 ======================================================
 Architecture:
-  1. Intent Detection      — greeting / no-docs / normal query
+  1. Intent Detection      — LLM-based smart routing (greeting / casual / gk / document)
   2. Document Targeting    — which doc(s) to search
   3. Adaptive Strategy     — deep_read / standard_rag / query_expansion / hierarchical
   4. Retrieval             — ChromaDB similarity search with relevance filtering
@@ -16,6 +16,7 @@ Optimizations in this version:
   - standard_rag sorts by distance before capping — best chunks always win
   - handle_summary uses rolling window — covers more doc with less tokens
   - _no_relevant_content_response relaxes threshold and retries before fallback
+  - LLM-based intent detection — no hardcoded keyword lists for greetings
 """
 
 # ── Imports ────────────────────────────────────────────────────────────────────
@@ -160,26 +161,61 @@ def groq_call(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INTENT DETECTORS
+# INTENT DETECTION — LLM decides what kind of message this is
 # ══════════════════════════════════════════════════════════════════════════════
 
-def is_greeting(question: str) -> bool:
-    greetings = [
-        "hello", "hi", "hey", "good morning", "good evening",
-        "good afternoon", "how are you", "what's up", "whats up",
-        "who are you", "what can you do", "what are you",
-    ]
-    q = question.lower().strip()
-    return any(q.startswith(g) or q == g for g in greetings)
+def detect_intent(question: str, has_docs: bool) -> str:
+    """
+    Ask the LLM to classify the user's message into one of 4 intents:
+      - greeting   : hi, hello, bro, thanks, ok, how are you, etc.
+      - casual      : random chat, jokes, reactions, small talk
+      - general_knowledge : factual questions not related to any uploaded document
+      - document    : questions about document content, asking to summarize, search, compare, etc.
 
+    Returns one of: "greeting", "casual", "general_knowledge", "document"
+    """
+    doc_context = "The user has uploaded documents." if has_docs else "The user has not uploaded any documents."
+
+    raw = groq_call(
+        f"""{doc_context}
+
+Classify the following user message into exactly one of these intents:
+- greeting: any greeting, casual opener, reaction word (hi, hello, hey, bro, thanks, ok, cool, nice, lol, haha, sup, etc.)
+- casual: random small talk, jokes, personal questions, emotions — not related to documents or knowledge
+- general_knowledge: a factual question about the world, technology, history, science, etc. — NOT about any uploaded document
+- document: anything asking about document content — summarize, explain, find, compare, list, what does the document say, etc.
+
+User message: "{question}"
+
+Reply with ONLY one word — the intent label. Nothing else.""",
+        temperature=0.0,
+        max_tokens=10,
+    )
+
+    intent = raw.strip().lower().split()[0] if raw.strip() else "document"
+
+    # Safety fallback — if LLM returns something unexpected, default to document
+    if intent not in ("greeting", "casual", "general_knowledge", "document"):
+        intent = "document"
+
+    log.info(f"Intent detected: {intent.upper()} | Question: {question[:60]}")
+    return intent
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INTENT DETECTORS — kept for summary / comparison / list (still keyword-based)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def is_summary_request(question: str) -> bool:
     keywords = [
-        "summarize", "summarise", "summary", "overview",
-        "whole document", "entire document", "full document",
+        "summarize this document", "summarise this document",
+        "summary of this document", "summarize the document",
+        "summarise the document", "overview of this document",
         "what is this document about", "what does this document cover",
-        "give me a summary", "explain this document", "what is the document",
-        "brief me", "brief about", "tldr", "tl;dr",
+        "explain this document", "give me a summary",
+        "full document", "entire document", "whole document",
+        "brief me", "tldr", "tl;dr",
+        "summarize this", "summarise this",
     ]
     q = question.lower()
     return any(kw in q for kw in keywords)
@@ -271,17 +307,21 @@ Retrieved document content:
 User question: {question}
 
 INSTRUCTIONS:
-- Answer DIRECTLY. Never start with "Introduction", "Overview", "Based on the document", or any preamble.
-- Always format lists and multiple items as bullet points on separate lines — never run them together in a single line.
-- Match your response length and format to the question:
-  • Simple factual question → direct answer with bullet points if multiple items
-  • Complex question (explain, summarize, compare, list all) → use ## headers and bullet points
-- Extract EVERY relevant fact, number, date, name, statistic from the content — do not skip anything.
-- If the answer spans multiple sections or documents, cover ALL of them completely.
-- Use **bold** for key terms, names, and important values.
-- Cite source at the end: 📄 **[filename]**
-- If the answer is not in the retrieved content, say exactly: "This information was not found in the uploaded documents."
-- Do NOT fabricate, infer, or add anything not explicitly written in the content.
+- Read the question carefully and match your response style to it:
+  • Simple factual question (name, date, number, yes/no) → answer directly in 1-2 lines, no intro, no headers
+  • List question (list all, what are the) → bullet points only, no intro
+  • Summarize/overview/explain question → start with a 2-3 line intro paragraph, then use ## headers and bullet points for each section
+  • Compare question → ## section per document, then ## Key Differences
+- ALWAYS use proper markdown:
+  • Section headers → ## Title Case (never ALL CAPS)
+  • Subsections → ### Title Case
+  • Lists → bullet points (- item)
+  • Key values, names, numbers, dates → **bold**
+- Extract EVERY fact, number, date, name, statistic — do not skip anything
+- Cover ALL sections completely
+- Always refer to yourself as "I" — never say "You" when describing what you can or cannot do
+- If not found in the document: answer from your general knowledge and mention "This was not found in the uploaded documents, answering from general knowledge:"
+- Do NOT fabricate or infer anything not in the content
 
 Answer:"""
 
@@ -650,8 +690,8 @@ def handle_summary(
         # Split into batches of 20 chunks each
         batch_size    = 20
         batches       = [chunks[i:i+batch_size] for i in range(0, len(chunks), batch_size)]
-        # Cap to 2 batches max to stay within token limit
-        batches       = batches[:2]
+        # Cap to 1 batch to avoid Groq rate limit
+        batches       = batches[:1]
         batch_summaries = []
 
         for batch_num, batch in enumerate(batches, 1):
@@ -687,15 +727,17 @@ Key points from this section:""",
         combined = combined[:28000]
 
     final_answer = groq_call(
-        f"""You are an expert document analyst. Based on the extracted key points below, 
+        f"""You are an expert document analyst. Based on the extracted key points below,
 produce a comprehensive, well-structured final summary.
 
-RULES:
-- Cover ALL sections and topics mentioned in the key points
-- Use ## for major sections, ### for subsections, bullet points for details  
-- Include all statistics, numbers, dates, names
-- End with ## Key Takeaways (the 5 most important points)
-- Cite source: 📄 **[filename]**
+STRICT RULES:
+- Always start with ## Document Summary as the first heading, followed by a 2-3 line intro paragraph summarizing who/what the document is about
+- Use ## for every major section (e.g. ## Technical Skills, ## Projects, ## Education)
+- Use ### for subsections
+- Use bullet points for all details — never paragraphs
+- Bold all key terms, names, numbers, dates using **bold**
+- Include ALL statistics, numbers, dates, names — do not skip anything
+- End with ## Key Takeaways with 5 bullet points
 - Do NOT add outside knowledge
 
 Extracted key points:
@@ -764,8 +806,9 @@ Question: {question}""",
 
 def answer_with_llm(question: str, note: str | None = None) -> dict:
     answer = groq_call(
-        f"""You are MultiDoc AI — a smart helpful assistant.
-Answer clearly using your own knowledge. Use markdown formatting.
+        f"""You are MultiDoc AI — a document assistant. You help users query their uploaded documents.
+If no document is uploaded, tell the user to upload a document first in 1-2 lines. Do not explain your training data. Do not say you are a general AI.
+If the question is general knowledge and no document context exists, answer it briefly and mention it is from general knowledge.
 Question: {question}""",
         temperature=0.7,
         max_tokens=2048,
@@ -784,22 +827,9 @@ def answer_question(user_question: str, selected_doc: str = "all") -> dict:
     if not selected_doc or selected_doc.strip() == "":
         selected_doc = "all"
 
-    # Greetings
-    if is_greeting(user_question):
-        return {
-            "answer": groq_call(
-                """You are MultiDoc AI — a friendly, helpful document assistant.
-Greet the user warmly. Tell them they can upload documents (PDF, Word, TXT, CSV, Excel, PowerPoint, Markdown)
-and ask any questions about them. Keep it to 2-3 sentences. Be enthusiastic but concise.""",
-                temperature=0.7,
-                max_tokens=200,
-            ),
-            "sources": [],
-        }
-
-    # Check docs exist
+    # Check docs exist first — needed for intent detection context
     try:
-        all_data = get_collection().get(include=["metadatas"])
+        all_data    = get_collection().get(include=["metadatas"])
         all_sources = list(set(m.get("source", "Unknown") for m in all_data["metadatas"]))
         has_docs    = len(all_sources) > 0
     except Exception as e:
@@ -807,10 +837,58 @@ and ask any questions about them. Keep it to 2-3 sentences. Be enthusiastic but 
         all_sources = []
         has_docs    = False
 
+    # ── LLM-based intent detection ──────────────────────────────────────────
+    intent = detect_intent(user_question, has_docs)
+
+    # Greeting → respond warmly and naturally
+    if intent == "greeting":
+        return {
+            "answer": groq_call(
+                f"""You are MultiDoc AI — a friendly, helpful document assistant.
+The user said: "{user_question}"
+Respond naturally and warmly, the way a friendly assistant would.
+If it's a greeting, greet back. If it's a thank you, acknowledge it. If it's casual, respond casually.
+Mention you can help with uploaded documents (PDF, Word, TXT, CSV, Excel, PowerPoint, Markdown) only if it fits naturally — don't force it.
+Keep it short, natural, friendly.""",
+                temperature=0.8,
+                max_tokens=150,
+            ),
+            "sources": [],
+        }
+
+    # Casual chat → respond naturally, no RAG
+    if intent == "casual":
+        return {
+            "answer": groq_call(
+                f"""You are MultiDoc AI — a friendly assistant.
+The user said: "{user_question}"
+Respond naturally and conversationally. Keep it short and human.""",
+                temperature=0.8,
+                max_tokens=200,
+            ),
+            "sources": [],
+        }
+
+    # General knowledge → answer directly, no RAG needed
+    if intent == "general_knowledge":
+        answer = groq_call(
+            f"""You are MultiDoc AI. Answer this general knowledge question clearly and helpfully.
+Use markdown formatting where appropriate.
+Question: {user_question}""",
+            temperature=0.7,
+            max_tokens=2048,
+        )
+        return {
+            "answer": f"ℹ️ *Answering from general knowledge:*\n\n{answer}",
+            "sources": [],
+        }
+
+    # ── Document intent — run full RAG pipeline ──────────────────────────────
+
     if not has_docs:
         return answer_with_llm(
             user_question,
-            note="💡 *No documents uploaded yet — answering from general knowledge:*",
+            note="💡 *No documents uploaded yet. Please upload a document first.*",
         )
 
     # Determine target document
