@@ -18,10 +18,8 @@ client_title = Groq(api_key=os.getenv("GROQ_API_KEY"))
 app = Flask(__name__)
 CORS(app, origins=["https://multi-doc-knowledge-base.vercel.app", "https://multi-doc-knowledge-base-79cz54c0q-prasannabalaji29s-projects.vercel.app", "http://localhost:5173"])
 
-# ── Supported file types ───────────────────────────────────────────────────────
 ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.docx', '.csv', '.xlsx', '.pptx', '.md'}
 
-# ── DB ─────────────────────────────────────────────────────────────────────────
 def get_db():
     database_url = os.getenv("DATABASE_URL")
     if database_url:
@@ -35,7 +33,6 @@ def get_db():
         cursor_factory=psycopg2.extras.RealDictCursor
     )
 
-# ── Title generator ────────────────────────────────────────────────────────────
 def generate_title(question):
     try:
         response = client_title.chat.completions.create(
@@ -53,7 +50,6 @@ def generate_title(question):
         print(f"Title generation error: {e}")
         return question[:40]
 
-# ── DB save helper ─────────────────────────────────────────────────────────────
 def _save_to_db(session_id, question, answer, sources):
     title = generate_title(question)
     try:
@@ -68,10 +64,6 @@ def _save_to_db(session_id, question, answer, sources):
         conn.close()
     except Exception as e:
         print(f"DB save error: {e}")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ROUTES
-# ══════════════════════════════════════════════════════════════════════════════
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -98,7 +90,6 @@ def upload():
         return jsonify({"message": f"{filename} uploaded and indexed successfully"}), 200
     except Exception as e:
         print(f"Ingest error: {e}")
-        # File was saved — ingest failed. Don't delete file, report error.
         return jsonify({"error": f"File saved but indexing failed: {str(e)}"}), 500
 
 
@@ -108,11 +99,12 @@ def query():
     question     = data.get("question", "").strip()
     session_id   = data.get("session_id", str(uuid.uuid4()))
     selected_doc = data.get("selected_doc", "all")
+    history      = data.get("history", [])
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    result  = answer_question(question, selected_doc)
+    result  = answer_question(question, selected_doc, history)
     answer  = result.get("answer", "")
     sources = json.dumps(result.get("sources", []))
 
@@ -132,16 +124,15 @@ def stream():
     question     = data.get("question", "").strip()
     session_id   = data.get("session_id", str(uuid.uuid4()))
     selected_doc = data.get("selected_doc", "all")
+    history      = data.get("history", [])
 
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    # Run RAG OUTSIDE generator — saves to DB before streaming
-    result  = answer_question(question, selected_doc)
+    result  = answer_question(question, selected_doc, history)
     answer  = result.get("answer", "")
     sources = result.get("sources", [])
 
-    # Save to DB immediately
     _save_to_db(session_id, question, answer, json.dumps(sources))
 
     def generate():
@@ -225,15 +216,11 @@ def delete_doc():
     if not filename:
         return jsonify({"error": "No filename provided"}), 400
 
-    # Remove from disk
     filepath = os.path.join("docs", filename)
     if os.path.exists(filepath):
         os.remove(filepath)
         print(f"🗑️  Deleted file: {filename}")
-    else:
-        print(f"⚠️  File not found on disk: {filename}")
 
-    # Remove from ChromaDB
     try:
         import chromadb
         chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -241,9 +228,6 @@ def delete_doc():
         results       = col.get(where={"source": filename})
         if results["ids"]:
             col.delete(ids=results["ids"])
-            print(f"🗑️  Removed {len(results['ids'])} chunks from ChromaDB for: {filename}")
-        else:
-            print(f"⚠️  No ChromaDB chunks found for: {filename}")
     except Exception as e:
         print(f"ChromaDB delete error: {e}")
 

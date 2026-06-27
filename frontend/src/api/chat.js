@@ -50,13 +50,14 @@ export const streamQuestion = (
   question,
   session_id,
   selected_doc = 'all',
+  history = [],
   onToken,
   onDone
 ) => {
   fetch(`${BASE}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, session_id, selected_doc }),
+    body: JSON.stringify({ question, session_id, selected_doc, history }),
   })
     .then((res) => {
       const reader  = res.body.getReader()

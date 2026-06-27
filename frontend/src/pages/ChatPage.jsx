@@ -292,6 +292,14 @@ export default function ChatPage() {
     const question = input.trim()
     setInput('')
 
+    // Collect last 4 messages (sliding window) for conversation history
+    // Filter out streaming/empty bot messages, only include completed ones
+    const completedMessages = messages.filter(m => m.content && m.content.trim() !== '')
+    const recentMessages = completedMessages.slice(-4).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content
+    }))
+
     setMessages(prev => [...prev, {
       role: 'user',
       content: question,
@@ -312,6 +320,7 @@ export default function ChatPage() {
       question,
       sessionId,
       selectedDoc,
+      recentMessages,
       (token) => {
         setMessages(prev => {
           const updated = [...prev]

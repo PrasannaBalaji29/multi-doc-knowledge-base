@@ -17,6 +17,7 @@ Optimizations in this version:
   - handle_summary uses rolling window — covers more doc with less tokens
   - _no_relevant_content_response relaxes threshold and retries before fallback
   - LLM-based intent detection — no hardcoded keyword lists for greetings
+  - Conversation history — sliding window of last 4 messages passed to LLM
 """
 
 # ── Imports ────────────────────────────────────────────────────────────────────
@@ -128,18 +129,44 @@ def cap_chunks_by_token_budget(doc_chunks: dict, token_budget: int = 9000) -> di
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LLM CALL — with retry + error handling
+# HISTORY FORMATTER — converts frontend history to Groq messages format
+# ══════════════════════════════════════════════════════════════════════════════
+
+def format_history(history: list) -> list:
+    """
+    Convert history from frontend format to Groq messages format.
+    Caps at last 4 messages to stay within token limits.
+    history = [{"role": "user"|"assistant", "content": "..."}]
+    """
+    if not history:
+        return []
+    recent = history[-4:]
+    messages = []
+    for msg in recent:
+        role    = msg.get("role", "user")
+        content = msg.get("content", "").strip()
+        if content:
+            messages.append({"role": role, "content": content})
+    return messages
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LLM CALL — with retry + error handling + optional history
 # ══════════════════════════════════════════════════════════════════════════════
 
 def groq_call(
     prompt: str,
     temperature: float = 0.0,
     max_tokens: int = GROQ_MAX_TOKENS,
-    system: str | None = None
+    system: str | None = None,
+    history: list | None = None,
 ) -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
+    # Inject conversation history before current prompt
+    if history:
+        messages.extend(history)
     messages.append({"role": "user", "content": prompt})
 
     for attempt in range(1, GROQ_RETRIES + 1):
@@ -356,7 +383,7 @@ def build_context(doc_chunks: dict, cap: int | None = None) -> tuple[str, list[s
 # RETRIEVAL STRATEGIES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def deep_read(question: str, target_doc: str | None = None) -> tuple[str, list[str]]:
+def deep_read(question: str, target_doc: str | None = None, history: list | None = None) -> tuple[str, list[str]]:
     """
     Read ALL chunks — best for small docs (<=80 chunks).
     Token-capped to stay within Groq free tier limit.
@@ -384,7 +411,7 @@ def deep_read(question: str, target_doc: str | None = None) -> tuple[str, list[s
     doc_list_str = "\n".join(f"- {get_file_label(s)} → {s}" for s in unique_sources)
     prompt       = build_rag_prompt(question, context, doc_list_str)
 
-    return groq_call(prompt), unique_sources
+    return groq_call(prompt, history=history), unique_sources
 
 
 def standard_rag(
@@ -392,6 +419,7 @@ def standard_rag(
     query_embedding: list,
     selected_doc: str,
     all_sources: list[str],
+    history: list | None = None,
 ) -> tuple[str, list[str]]:
     """
     Single embedding query, chunks sorted by distance, token-capped.
@@ -428,7 +456,7 @@ def standard_rag(
 
     if not doc_chunks:
         log.info("standard_rag: no chunks passed relevance threshold — relaxing and retrying")
-        return _retry_with_relaxed_threshold(question, query_embedding, selected_doc)
+        return _retry_with_relaxed_threshold(question, query_embedding, selected_doc, history)
 
     # Token budget cap
     doc_chunks = cap_chunks_by_token_budget(doc_chunks)
@@ -436,7 +464,7 @@ def standard_rag(
     context, unique_sources = build_context(doc_chunks)
     doc_list_str = "\n".join(f"- {get_file_label(s)} → {s}" for s in unique_sources)
     prompt       = build_rag_prompt(question, context, doc_list_str)
-    answer       = groq_call(prompt)
+    answer       = groq_call(prompt, history=history)
     sources      = unique_sources if best_distance < RELEVANCE_THRESHOLD else []
 
     return answer, sources
@@ -447,6 +475,7 @@ def query_expansion_rag(
     query_embedding: list,
     selected_doc: str,
     all_sources: list[str],
+    history: list | None = None,
 ) -> tuple[str, list[str]]:
     """
     3 query variants + original → merged, deduped, sorted, token-capped.
@@ -508,7 +537,7 @@ Original question: {question}
     context, unique_sources = build_context(doc_chunks)
     doc_list_str = "\n".join(f"- {get_file_label(s)} → {s}" for s in unique_sources)
     prompt       = build_rag_prompt(question, context, doc_list_str)
-    answer       = groq_call(prompt)
+    answer       = groq_call(prompt, history=history)
     sources      = unique_sources if best_distance < RELEVANCE_THRESHOLD else []
 
     return answer, sources
@@ -519,6 +548,7 @@ def hierarchical_rag(
     query_embedding: list,
     selected_doc: str,
     all_sources: list[str],
+    history: list | None = None,
 ) -> tuple[str, list[str]]:
     """
     Two-pass: first pass broad, second pass subtopic-targeted.
@@ -591,7 +621,7 @@ Sub-topics:""",
     context, unique_sources = build_context(doc_chunks)
     doc_list_str  = "\n".join(f"- {get_file_label(s)} → {s}" for s in unique_sources)
     prompt        = build_rag_prompt(question, context, doc_list_str)
-    answer        = groq_call(prompt)
+    answer        = groq_call(prompt, history=history)
     best_distance = min(
         min(d for _, d in pairs) for pairs in doc_chunks.values() if pairs
     )
@@ -604,6 +634,7 @@ def cross_doc_comparison(
     question: str,
     query_embedding: list,
     all_sources: list[str],
+    history: list | None = None,
 ) -> tuple[str, list[str]]:
     """Force equal retrieval from all docs for comparison queries."""
     cap        = 12
@@ -652,7 +683,7 @@ STRICT INSTRUCTIONS:
 
 Comparison Answer:"""
 
-    return groq_call(prompt), unique_sources
+    return groq_call(prompt, history=history), unique_sources
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -759,6 +790,7 @@ def _retry_with_relaxed_threshold(
     question: str,
     query_embedding: list,
     selected_doc: str,
+    history: list | None = None,
 ) -> tuple[str, list[str]]:
     """
     Called when standard_rag finds nothing — relaxes threshold to 2.5 and retries once.
@@ -790,7 +822,7 @@ def _retry_with_relaxed_threshold(
     doc_list_str = "\n".join(f"- {get_file_label(s)} → {s}" for s in unique_sources)
     prompt       = build_rag_prompt(question, context, doc_list_str)
 
-    return groq_call(prompt), unique_sources
+    return groq_call(prompt, history=history), unique_sources
 
 
 def _no_relevant_content_response(question: str) -> str:
@@ -804,7 +836,7 @@ Question: {question}""",
     return f"ℹ️ *No relevant content found in the uploaded documents. Answering from general knowledge:*\n\n{answer}"
 
 
-def answer_with_llm(question: str, note: str | None = None) -> dict:
+def answer_with_llm(question: str, note: str | None = None, history: list | None = None) -> dict:
     answer = groq_call(
         f"""You are MultiDoc AI — a document assistant. You help users query their uploaded documents.
 If no document is uploaded, tell the user to upload a document first in 1-2 lines. Do not explain your training data. Do not say you are a general AI.
@@ -812,6 +844,7 @@ If the question is general knowledge and no document context exists, answer it b
 Question: {question}""",
         temperature=0.7,
         max_tokens=2048,
+        history=history,
     )
     if note:
         answer = f"{note}\n\n{answer}"
@@ -822,10 +855,13 @@ Question: {question}""",
 # MAIN ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def answer_question(user_question: str, selected_doc: str = "all") -> dict:
+def answer_question(user_question: str, selected_doc: str = "all", history: list = []) -> dict:
     user_question = user_question.strip()
     if not selected_doc or selected_doc.strip() == "":
         selected_doc = "all"
+
+    # Format conversation history for Groq
+    formatted_history = format_history(history)
 
     # Check docs exist first — needed for intent detection context
     try:
@@ -852,6 +888,7 @@ Mention you can help with uploaded documents (PDF, Word, TXT, CSV, Excel, PowerP
 Keep it short, natural, friendly.""",
                 temperature=0.8,
                 max_tokens=150,
+                history=formatted_history,
             ),
             "sources": [],
         }
@@ -865,6 +902,7 @@ The user said: "{user_question}"
 Respond naturally and conversationally. Keep it short and human.""",
                 temperature=0.8,
                 max_tokens=200,
+                history=formatted_history,
             ),
             "sources": [],
         }
@@ -877,6 +915,7 @@ Use markdown formatting where appropriate.
 Question: {user_question}""",
             temperature=0.7,
             max_tokens=2048,
+            history=formatted_history,
         )
         return {
             "answer": f"ℹ️ *Answering from general knowledge:*\n\n{answer}",
@@ -889,6 +928,7 @@ Question: {user_question}""",
         return answer_with_llm(
             user_question,
             note="💡 *No documents uploaded yet. Please upload a document first.*",
+            history=formatted_history,
         )
 
     # Determine target document
@@ -911,14 +951,15 @@ Question: {user_question}""",
     if is_comparison_request(user_question) and len(all_sources) > 1:
         log.info("→ CROSS-DOC COMPARISON")
         answer, sources = cross_doc_comparison(
-            user_question, get_embedder().encode(user_question).tolist(), all_sources
+            user_question, get_embedder().encode(user_question).tolist(), all_sources,
+            formatted_history,
         )
         return {"answer": answer, "sources": sources}
 
     # Deep read
     if strategy == "deep_read":
         log.info("→ DEEP READ")
-        answer, sources = deep_read(user_question, target_doc)
+        answer, sources = deep_read(user_question, target_doc, formatted_history)
         return {"answer": answer, "sources": sources}
 
     # Embedding for remaining strategies
@@ -926,15 +967,15 @@ Question: {user_question}""",
 
     if strategy == "standard_rag":
         log.info("→ STANDARD RAG")
-        answer, sources = standard_rag(user_question, question_embedding, selected_doc, all_sources)
+        answer, sources = standard_rag(user_question, question_embedding, selected_doc, all_sources, formatted_history)
 
     elif strategy == "query_expansion":
         log.info("→ QUERY EXPANSION RAG")
-        answer, sources = query_expansion_rag(user_question, question_embedding, selected_doc, all_sources)
+        answer, sources = query_expansion_rag(user_question, question_embedding, selected_doc, all_sources, formatted_history)
 
     else:
         log.info("→ HIERARCHICAL RAG")
-        answer, sources = hierarchical_rag(user_question, question_embedding, selected_doc, all_sources)
+        answer, sources = hierarchical_rag(user_question, question_embedding, selected_doc, all_sources, formatted_history)
 
     return {"answer": answer, "sources": sources}
 
