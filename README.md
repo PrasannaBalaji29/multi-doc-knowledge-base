@@ -31,6 +31,7 @@ This project demonstrates end-to-end ownership of the GenAI stack: document inge
 | View source | Every answer cites which document it came from |
 | Chat history | Sessions persisted in PostgreSQL, grouped by date |
 | Mobile | Full bottom-tab navigation, works on any device |
+![MultiDoc AI Screenshot](screenshot.png)
 
 ---
 
