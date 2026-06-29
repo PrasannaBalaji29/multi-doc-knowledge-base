@@ -188,20 +188,18 @@ const ChatPanel = ({
         </div>
       )}
 
-      {messages.length === 0 && (
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
-          {suggestions.map((s, i) => (
-            <button key={i} onClick={() => setInput(s)} style={{
-              background: 'transparent', border: '1px solid #2a2a4a',
-              color: '#a78bfa', padding: mobile ? '5px 10px' : '6px 14px',
-              borderRadius: '20px', cursor: 'pointer',
-              fontSize: mobile ? '11px' : '12px', fontWeight: '500',
-            }}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', flexWrap: 'wrap' }}>
+        {suggestions.map((s, i) => (
+          <button key={i} onClick={() => setInput(s)} style={{
+            background: 'transparent', border: '1px solid #2a2a4a',
+            color: '#a78bfa', padding: mobile ? '5px 10px' : '6px 14px',
+            borderRadius: '20px', cursor: 'pointer',
+            fontSize: mobile ? '11px' : '12px', fontWeight: '500',
+          }}>
+            {s}
+          </button>
+        ))}
+      </div>
 
       <div style={{
         display: 'flex', gap: '8px',
