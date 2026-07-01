@@ -13,7 +13,7 @@ export default function Sidebar({ history, onNewChat, onClear, onSelectChat, act
 
   items.forEach(item => {
     const raw = item.timestamp
-    const date = new Date(raw + '+05:30')
+    const date = new Date(raw)
 
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
