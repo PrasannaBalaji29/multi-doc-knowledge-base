@@ -390,11 +390,14 @@ export default function ChatPage() {
     try {
       const res  = await getHistory(sid)
       const msgs = []
-      res.data.forEach(item => {
+      // /history returns rows newest-first — reverse to oldest-first BEFORE
+      // building user/bot pairs, so each pair stays in correct order.
+      const chronological = [...res.data].reverse()
+      chronological.forEach(item => {
         msgs.push({ role: 'user', content: item.question, timestamp: item.timestamp })
         msgs.push({ role: 'bot',  content: item.answer,   sources: [], timestamp: item.timestamp })
       })
-      setMessages(msgs.reverse())
+      setMessages(msgs)
       setSessionId(sid)
       if (isMobile) setMobileTab('chat')
     } catch {}
