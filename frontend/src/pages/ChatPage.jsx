@@ -394,8 +394,17 @@ export default function ChatPage() {
       // building user/bot pairs, so each pair stays in correct order.
       const chronological = [...res.data].reverse()
       chronological.forEach(item => {
+        // sources is stored as a JSON string in Postgres — parse it back
+        // into an array so source citation chips reappear on reload.
+        let parsedSources = []
+        try {
+          parsedSources = item.sources ? JSON.parse(item.sources) : []
+          if (!Array.isArray(parsedSources)) parsedSources = []
+        } catch {
+          parsedSources = []
+        }
         msgs.push({ role: 'user', content: item.question, timestamp: item.timestamp })
-        msgs.push({ role: 'bot',  content: item.answer,   sources: [], timestamp: item.timestamp })
+        msgs.push({ role: 'bot',  content: item.answer,   sources: parsedSources, timestamp: item.timestamp })
       })
       setMessages(msgs)
       setSessionId(sid)
