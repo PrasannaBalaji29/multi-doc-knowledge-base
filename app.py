@@ -36,7 +36,7 @@ def get_db():
 def generate_title(question):
     try:
         response = client_title.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": (
                 "Generate a short 3-5 word title for this question. "
                 "No quotes, no punctuation, title case only, just the title:\n\n"
@@ -53,12 +53,13 @@ def generate_title(question):
 def _save_to_db(session_id, question, answer, sources):
     title = generate_title(question)
     try:
+        ist_time = datetime.datetime.utcnow()
         conn = get_db()
         with conn.cursor() as cursor:
             cursor.execute(
-                "INSERT INTO chat_history (session_id, question, answer, sources, title) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (session_id, question, answer, sources, title)
+                "INSERT INTO chat_history (session_id, question, answer, sources, title, timestamp) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (session_id, question, answer, sources, title, ist_time)
             )
         conn.commit()
         conn.close()

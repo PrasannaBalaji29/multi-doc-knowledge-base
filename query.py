@@ -77,8 +77,8 @@ CHUNKS_PER_DOC = {
     "hierarchical":    20,   # 2-pass, deeper coverage
 }
 
-GROQ_MODEL      = "llama-3.3-70b-versatile"
-GROQ_MAX_TOKENS = 3000   # leave headroom for input tokens
+GROQ_MODEL      = "openai/gpt-oss-120b"
+GROQ_MAX_TOKENS = 1500   # leave headroom for input tokens
 GROQ_RETRIES    = 3
 GROQ_RETRY_WAIT = 2
 
@@ -107,7 +107,57 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def cap_chunks_by_token_budget(doc_chunks: dict, token_budget: int = 9000) -> dict:
+def clean_conversational_response(text: str) -> str:
+    """
+    Strip heading-style openers from non-RAG responses (general_knowledge,
+    greeting, casual, fallback). Removes:
+      - ## / ### markdown headings at the start
+      - ALL-CAPS bold lines like **INTRODUCTION TO THE USA**
+      - Title-case bold lines like **Introduction To The Usa**
+    These are LLM habits that make conversational answers look like documents.
+    RAG responses are NOT passed through this — they need headings.
+    """
+    import re
+    lines  = text.strip().split("\n")
+    result = []
+    skip_next_blank = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+
+        # Skip ## / ### heading lines
+        if re.match(r'^#{1,3}\s+', stripped):
+            skip_next_blank = True
+            continue
+
+        # Skip bold ALL-CAPS title lines e.g. **INTRODUCTION TO THE USA**
+        if re.match(r'^\*\*[A-Z][A-Z\s]{3,}\*\*$', stripped):
+            skip_next_blank = True
+            continue
+
+        # Skip bold Title Case lines that are short (likely a heading)
+        # e.g. **Introduction To The Usa** or **Key Facts About The Usa**
+        bold_match = re.match(r'^\*\*([^*]+)\*\*$', stripped)
+        if bold_match:
+            inner = bold_match.group(1)
+            words = inner.split()
+            # If every word is capitalised and line is short → heading, skip it
+            if len(words) >= 2 and all(w[0].isupper() for w in words if w) and len(words) <= 8:
+                skip_next_blank = True
+                continue
+
+        # Skip blank line immediately after a removed heading
+        if skip_next_blank and stripped == "":
+            skip_next_blank = False
+            continue
+
+        skip_next_blank = False
+        result.append(line)
+
+    return "\n".join(result).strip()
+
+
+def cap_chunks_by_token_budget(doc_chunks: dict, token_budget: int = 5000) -> dict:
     """
     Trim doc_chunks so total context stays within token_budget.
     Preserves best chunks (already sorted by distance in retrieval).
@@ -202,27 +252,30 @@ def detect_intent(question: str, has_docs: bool) -> str:
     Returns one of: "greeting", "casual", "general_knowledge", "document"
     """
     doc_context = "The user has uploaded documents." if has_docs else "The user has not uploaded any documents."
-
     raw = groq_call(
         f"""{doc_context}
 
-Classify the following user message into exactly one of these intents:
-- greeting: any greeting, casual opener, reaction word (hi, hello, hey, bro, thanks, ok, cool, nice, lol, haha, sup, etc.)
-- casual: random small talk, jokes, personal questions, emotions — not related to documents or knowledge
-- general_knowledge: a factual question about the world, technology, history, science, etc. — NOT about any uploaded document
-- document: anything asking about document content — summarize, explain, find, compare, list, what does the document say, etc.
+You are classifying what the user is actually trying to do with their message. Think about their real intent, not just the words they used — people phrase things differently, so reason about purpose, not keywords.
+
+The five possible intents:
+- greeting: the user is opening or maintaining social rapport — acknowledging you, checking in on you, being polite, or reacting casually. The point of the message is social, not informational.
+- casual: the user is chatting, joking, or expressing something personal/emotional, with no real information need related to documents or facts.
+- general_knowledge: the user wants a factual answer about the world — something you'd know independent of any uploaded file.
+- meta: the user is asking about THIS CONVERSATION itself — something that was said earlier in this chat, by either of you. The subject of their question is the conversation's own history, not the documents or the world.
+- document: the user wants information that would come FROM the content of an uploaded file — its facts, structure, or details.
+
+Judge by what the user is actually trying to accomplish, not by matching to example phrases.
 
 User message: "{question}"
 
 Reply with ONLY one word — the intent label. Nothing else.""",
         temperature=0.0,
-        max_tokens=10,
+        max_tokens=50,
     )
-
     intent = raw.strip().lower().split()[0] if raw.strip() else "document"
 
     # Safety fallback — if LLM returns something unexpected, default to document
-    if intent not in ("greeting", "casual", "general_knowledge", "document"):
+    if intent not in ("greeting", "casual", "general_knowledge", "document", "meta"):
         intent = "document"
 
     log.info(f"Intent detected: {intent.upper()} | Question: {question[:60]}")
@@ -362,6 +415,8 @@ def build_context(doc_chunks: dict, cap: int | None = None) -> tuple[str, list[s
         texts = []
         for item in items:
             text = item[0] if isinstance(item, tuple) else item
+            import re
+            text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
             texts.append(text)
         if cap:
             texts = texts[:cap]
@@ -828,12 +883,13 @@ def _retry_with_relaxed_threshold(
 def _no_relevant_content_response(question: str) -> str:
     answer = groq_call(
         f"""You are MultiDoc AI. Answer this question using your general knowledge.
-Be helpful, clear, and use markdown formatting.
+Be helpful, clear, and use markdown formatting (bullet points, bold key terms).
+Do NOT start with any heading, title, or label — begin your answer directly.
 Question: {question}""",
         temperature=0.7,
         max_tokens=2048,
     )
-    return f"ℹ️ *No relevant content found in the uploaded documents. Answering from general knowledge:*\n\n{answer}"
+    return f"ℹ️ *No relevant content found in the uploaded documents. Answering from general knowledge:*\n\n{clean_conversational_response(answer)}"
 
 
 def answer_with_llm(question: str, note: str | None = None, history: list | None = None) -> dict:
@@ -879,31 +935,49 @@ def answer_question(user_question: str, selected_doc: str = "all", history: list
     # Greeting → respond warmly and naturally
     if intent == "greeting":
         return {
-            "answer": groq_call(
+            "answer": clean_conversational_response(groq_call(
                 f"""You are MultiDoc AI — a friendly, helpful document assistant.
 The user said: "{user_question}"
 Respond naturally and warmly, the way a friendly assistant would.
 If it's a greeting, greet back. If it's a thank you, acknowledge it. If it's casual, respond casually.
 Mention you can help with uploaded documents (PDF, Word, TXT, CSV, Excel, PowerPoint, Markdown) only if it fits naturally — don't force it.
-Keep it short, natural, friendly.""",
+Keep it short, natural, friendly. Do NOT start with any heading or title.""",
                 temperature=0.8,
                 max_tokens=150,
                 history=formatted_history,
-            ),
+            )),
+            "sources": [],
+        }
+    # Meta — question about the conversation itself. Let the LLM read
+    # actual history and answer naturally, no keyword rules.
+    if intent == "meta":
+        answer = groq_call(
+            f"""The user is asking about our conversation so far — not about any document.
+Look at the actual conversation history provided to you and answer their question accurately and naturally, based on what was really said.
+If there's no earlier conversation to reference, say so honestly.
+Do NOT start with any heading or title.
+
+User's question: "{user_question}\"""",
+            temperature=0.3,
+            max_tokens=200,
+            history=formatted_history,
+        )
+        return {
+            "answer": clean_conversational_response(answer),
             "sources": [],
         }
 
     # Casual chat → respond naturally, no RAG
     if intent == "casual":
         return {
-            "answer": groq_call(
+            "answer": clean_conversational_response(groq_call(
                 f"""You are MultiDoc AI — a friendly assistant.
 The user said: "{user_question}"
-Respond naturally and conversationally. Keep it short and human.""",
+Respond naturally and conversationally. Keep it short and human. Do NOT start with any heading or title.""",
                 temperature=0.8,
                 max_tokens=200,
                 history=formatted_history,
-            ),
+            )),
             "sources": [],
         }
 
@@ -911,14 +985,15 @@ Respond naturally and conversationally. Keep it short and human.""",
     if intent == "general_knowledge":
         answer = groq_call(
             f"""You are MultiDoc AI. Answer this general knowledge question clearly and helpfully.
-Use markdown formatting where appropriate.
+Use markdown formatting where appropriate (bullet points, bold for key terms).
+Do NOT start with any heading, title, or label — begin your answer directly.
 Question: {user_question}""",
             temperature=0.7,
             max_tokens=2048,
             history=formatted_history,
         )
         return {
-            "answer": f"ℹ️ *Answering from general knowledge:*\n\n{answer}",
+            "answer": f"ℹ️ *Answering from general knowledge:*\n\n{clean_conversational_response(answer)}",
             "sources": [],
         }
 
@@ -960,6 +1035,8 @@ Question: {user_question}""",
     if strategy == "deep_read":
         log.info("→ DEEP READ")
         answer, sources = deep_read(user_question, target_doc, formatted_history)
+        if "answering from general knowledge" in answer.lower() or "not found in the uploaded documents" in answer.lower():
+            sources = []
         return {"answer": answer, "sources": sources}
 
     # Embedding for remaining strategies
@@ -976,6 +1053,9 @@ Question: {user_question}""",
     else:
         log.info("→ HIERARCHICAL RAG")
         answer, sources = hierarchical_rag(user_question, question_embedding, selected_doc, all_sources, formatted_history)
+
+    if "answering from general knowledge" in answer.lower() or "not found in the uploaded documents" in answer.lower():
+        sources = []
 
     return {"answer": answer, "sources": sources}
 
